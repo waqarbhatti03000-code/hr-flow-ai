@@ -1,0 +1,129 @@
+// HR Flow AI — Prisma schema
+// Primary database: PostgreSQL. Relations are normalized and indexed for
+// the main query paths (listing employees by company/department, counting
+// AI outputs per company, etc.).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth / tenancy
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  HR_MANAGER
+  EMPLOYEE
+}
+
+model Company {
+  id          String       @id @default(cuid())
+  name        String
+  country     String       @default("PK")
+  size        String       @default("SMB") // SMB | MID | ENTERPRISE
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  users       User[]
+  employees   Employee[]
+  departments Department[]
+  aiOutputs   AiOutput[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  role         Role      @default(EMPLOYEE)
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee     Employee?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Organization
+// ---------------------------------------------------------------------------
+
+model Department {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  companyId   String
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees   Employee[]
+  parentId    String?
+  parent      Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Department[] @relation("DepartmentHierarchy")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model Employee {
+  id           String      @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String
+  title        String
+  level        String      @default("Mid")  // Junior | Mid | Senior | Lead | Manager | Director
+  status       String      @default("ACTIVE") // ACTIVE | ON_LEAVE | TERMINATED
+  country      String      @default("PK")
+  salary       Int?        // annual gross in smallest currency unit-free integer
+  currency     String      @default("PKR")
+  hiredAt      DateTime    @default(now())
+
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  userId       String?     @unique
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([companyId, email])
+  @@index([companyId])
+  @@index([departmentId])
+}
+
+// ---------------------------------------------------------------------------
+// AI toolkit outputs
+// ---------------------------------------------------------------------------
+
+enum AiOutputKind {
+  JOB_DESCRIPTION
+  ORG_STRUCTURE
+  SALARY_BAND
+}
+
+model AiOutput {
+  id        String       @id @default(cuid())
+  kind      AiOutputKind
+  title     String
+  input     Json
+  output    Json
+  model     String       @default("mock")
+  companyId String
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdAt DateTime     @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([kind])
+}
