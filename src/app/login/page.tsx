@@ -9,10 +9,24 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
+/**
+ * Restrict the post-login redirect to same-origin paths to avoid CWE-601 open
+ * redirects via crafted ?callbackUrl=//evil.com or absolute URLs.
+ */
+function safeCallbackUrl(raw: string | null): string {
+  if (!raw) return "/dashboard";
+  // Must be an absolute path on this origin: starts with "/" but not "//" (which
+  // would be a protocol-relative URL pointing to another host) and not "/\\..."
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+    return "/dashboard";
+  }
+  return raw;
+}
+
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const callbackUrl = params.get("callbackUrl") ?? "/dashboard";
+  const callbackUrl = safeCallbackUrl(params.get("callbackUrl"));
   const [email, setEmail] = useState("admin@acme.test");
   const [password, setPassword] = useState("password123");
   const [loading, setLoading] = useState(false);
