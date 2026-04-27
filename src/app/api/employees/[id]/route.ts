@@ -25,6 +25,17 @@ export const PATCH = handle(async (req: Request, ctx: Ctx) => {
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Cross-tenant guard: only allow assignment to a department in this company.
+  if (body.departmentId) {
+    const dept = await prisma.department.findFirst({
+      where: { id: body.departmentId, companyId: auth.companyId },
+      select: { id: true },
+    });
+    if (!dept) {
+      return NextResponse.json({ error: "Invalid departmentId" }, { status: 400 });
+    }
+  }
+
   const employee = await prisma.employee.update({
     where: { id: existing.id },
     data: {

@@ -22,6 +22,9 @@ vi.mock("@/lib/db", () => ({
       findMany: vi.fn(),
       create: vi.fn(),
     },
+    department: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -44,7 +47,7 @@ vi.mock("@/lib/rbac", () => {
 });
 
 import { prisma } from "@/lib/db";
-import { GET } from "@/app/api/employees/route";
+import { GET, POST } from "@/app/api/employees/route";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -82,6 +85,65 @@ describe("GET /api/employees", () => {
     expect(body.employees[0].firstName).toBe("Ada");
     expect(prisma.employee.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { companyId: "company-1" } }),
+    );
+  });
+});
+
+describe("POST /api/employees — multi-tenant guards", () => {
+  function makeRequest(body: object) {
+    return new Request("http://localhost/api/employees", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  const validBody = {
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@acme.test",
+    title: "Engineer",
+    level: "Senior",
+    departmentId: "ckabcdefghijklmnopqrstuvw", // valid CUID-ish
+  };
+
+  it("rejects a departmentId that belongs to another company", async () => {
+    (prisma.department.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+
+    const res = await POST(makeRequest(validBody));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/Invalid departmentId/);
+    expect(prisma.employee.create).not.toHaveBeenCalled();
+    // The guard query must scope by both id AND companyId.
+    expect(prisma.department.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: validBody.departmentId,
+          companyId: "company-1",
+        }),
+      }),
+    );
+  });
+
+  it("creates the employee when the department belongs to the company", async () => {
+    (prisma.department.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: validBody.departmentId });
+    (prisma.employee.create as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "emp-1",
+      ...validBody,
+      email: validBody.email.toLowerCase(),
+      companyId: "company-1",
+      department: { id: validBody.departmentId, name: "Engineering" },
+    });
+
+    const res = await POST(makeRequest(validBody));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.employee.id).toBe("emp-1");
+    expect(prisma.employee.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ companyId: "company-1" }),
+      }),
     );
   });
 });

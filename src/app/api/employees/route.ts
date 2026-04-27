@@ -20,6 +20,18 @@ export const POST = handle(async (req: Request) => {
   const ctx = await requireRole(["HR_MANAGER"]);
   const input = EmployeeCreate.parse(await req.json());
 
+  // Cross-tenant guard: a department referenced from this company's data must
+  // also belong to this company. The FK alone only validates existence.
+  if (input.departmentId) {
+    const dept = await prisma.department.findFirst({
+      where: { id: input.departmentId, companyId: ctx.companyId },
+      select: { id: true },
+    });
+    if (!dept) {
+      return NextResponse.json({ error: "Invalid departmentId" }, { status: 400 });
+    }
+  }
+
   const employee = await prisma.employee.create({
     data: {
       ...input,
